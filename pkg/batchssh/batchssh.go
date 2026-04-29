@@ -29,6 +29,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -47,6 +48,15 @@ const (
 	SuccessIdentifier = "SUCCESS"
 	// FailedIdentifier for result output.
 	FailedIdentifier = "FAILED"
+)
+
+var (
+	LinuxUserRegex  = "[a-zA-Z0-9_.-]+[$]?"
+	SudoPromptRegex = fmt.Sprintf(
+		`\[sudo\] password for %s:\s*|\[sudo\] %s 的密码：\s*`,
+		LinuxUserRegex,
+		LinuxUserRegex,
+	)
 )
 
 // Tasker for ssh.
@@ -185,7 +195,8 @@ func (c *Client) ExecuteCmd(host *Host, command, lang, runAs string, sudo bool) 
 	}
 
 	if sudo {
-		command = fmt.Sprintf("%ssudo -u %s -H bash -c '%s'", exportLang, runAs, command)
+		escapedCommand := strings.ReplaceAll(command, "'", "'\\''")
+		command = fmt.Sprintf("%ssudo -u %s -H bash -c '%s'", exportLang, runAs, escapedCommand)
 	} else {
 		command = exportLang + command
 	}
@@ -235,12 +246,14 @@ func (c *Client) ExecuteScript(
 		exportLang = fmt.Sprintf(exportLangPattern, lang, lang, lang)
 	}
 
+	escapedScript := strings.ReplaceAll(script, "'", "'\\''")
+
 	command := ""
 	switch {
 	case sudo && remove:
-		command = fmt.Sprintf("%ssudo -u %s -H bash -c '%s;rc=$?;rm -f %s;exit $rc'", exportLang, runAs, script, script)
+		command = fmt.Sprintf("%ssudo -u %s -H bash -c '%s;rc=$?;rm -f %s;exit $rc'", exportLang, runAs, escapedScript, escapedScript)
 	case sudo && !remove:
-		command = fmt.Sprintf("%ssudo -u %s -H bash -c '%s'", exportLang, runAs, script)
+		command = fmt.Sprintf("%ssudo -u %s -H bash -c '%s'", exportLang, runAs, escapedScript)
 	case !sudo && remove:
 		command = fmt.Sprintf("%s%s;rc=$?;rm -f %s;exit $rc", exportLang, script, script)
 	case !sudo && !remove:
@@ -510,6 +523,9 @@ func (c *Client) executeCmd(session *ssh.Session, command string, host *Host) (s
 
 	if err != nil {
 		log.Debugf("%s: execute command '%s' failed, error: %v, output: %s", host.Host, command, err, outputStr)
+		if outputStr == "" {
+			return "", err
+		}
 		return "", errors.New(outputStr)
 	}
 	log.Debugf("%s: execute command '%s' success, output: %s", host.Host, command, outputStr)
@@ -527,6 +543,15 @@ func (c *Client) getClient(host *Host) (*ssh.Client, error) {
 		User:    host.User,
 		Auth:    host.SSHAuths,
 		Timeout: c.ConnTimeout,
+		HostKeyAlgorithms: []string{
+			ssh.KeyAlgoRSASHA512,
+			ssh.KeyAlgoRSASHA256,
+			ssh.KeyAlgoRSA,
+			ssh.KeyAlgoECDSA256,
+			ssh.KeyAlgoECDSA384,
+			ssh.KeyAlgoECDSA521,
+			ssh.KeyAlgoED25519,
+		},
 	}
 	//nolint:gosec
 	sshConfig.HostKeyCallback = ssh.InsecureIgnoreHostKey()
@@ -567,6 +592,8 @@ func (c *Client) handleOutput(w io.Writer, r io.Reader, password string) (<-chan
 	go func() {
 		sudoTimes := 0
 
+		re := regexp.MustCompile(SudoPromptRegex)
+
 		for {
 			//nolint:gomnd
 			buf := make([]byte, 2048)
@@ -577,7 +604,7 @@ func (c *Client) handleOutput(w io.Writer, r io.Reader, password string) (<-chan
 				return
 			}
 
-			if s := string(buf); strings.Contains(s, "[sudo]") {
+			if re.Match(buf[:n]) {
 				sudoTimes++
 
 				if sudoTimes == 1 {

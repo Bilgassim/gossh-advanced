@@ -46,15 +46,6 @@ import (
 	"github.com/windvalley/gossh/pkg/util"
 )
 
-var (
-	linuxUserRegex  = "[a-zA-Z0-9_.-]+[$]?"
-	sudoPromptRegex = fmt.Sprintf(
-		`(?s).*\[sudo\] password for %s:(\n|)|(?s).*\[sudo\] %s 的密码：(\n|)`,
-		linuxUserRegex,
-		linuxUserRegex,
-	)
-)
-
 type TaskType int
 
 const (
@@ -298,9 +289,9 @@ func (t *Task) handleOutput() {
 
 		// Trim sudo password prompt messages.
 		outputNoSudoPrompt := ""
-		re, err := regexp.Compile(sudoPromptRegex)
+		re, err := regexp.Compile(batchssh.SudoPromptRegex)
 		if err != nil {
-			log.Debugf("regexp compile '%s' failed: %s", sudoPromptRegex, err)
+			log.Debugf("regexp compile '%s' failed: %s", batchssh.SudoPromptRegex, err)
 		} else {
 			outputNoSudoPrompt = re.ReplaceAllString(outputNoR, "")
 		}
