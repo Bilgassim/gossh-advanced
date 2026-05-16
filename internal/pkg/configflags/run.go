@@ -35,6 +35,7 @@ const (
 	flagRunLang             = "run.lang"
 	flagRunConcurrency      = "run.concurrency"
 	flagRunCommandBlacklist = "run.command-blacklist"
+	flagRunDetectHoneypot   = "run.detect-honeypot"
 )
 
 type Run struct {
@@ -43,13 +44,15 @@ type Run struct {
 	Lang             string   `json:"lang" mapstructure:"lang"`
 	Concurrency      int      `json:"concurrency" mapstructure:"concurrency"`
 	CommandBlacklist []string `json:"command-blacklist" mapstructure:"command-blacklist"`
+	DetectHoneypot   bool     `json:"detect-honeypot" mapstructure:"detect-honeypot"`
 }
 
 func NewRun() *Run {
 	return &Run{
-		Sudo:        false,
-		AsUser:      "root",
-		Concurrency: 1,
+		Sudo:           false,
+		AsUser:         "root",
+		Concurrency:    1,
+		DetectHoneypot: false,
 	}
 }
 
@@ -74,6 +77,7 @@ func (r *Run) AddFlagsTo(flags *pflag.FlagSet) {
 		`commands that are prohibited from execution on target hosts
 (default: [rm,reboot,halt,shutdown,init,mkfs,mkfs.*,umount,dd])`,
 	)
+	flags.BoolVar(&r.DetectHoneypot, flagRunDetectHoneypot, r.DetectHoneypot, "detect and skip honeypots")
 }
 
 func (r *Run) Complete() error {

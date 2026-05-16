@@ -175,6 +175,47 @@ func (c *Client) BatchRun(hosts []*Host, sshTask Tasker) <-chan *Result {
 	return resCh
 }
 
+// CheckHoneypot checks if a host is a honeypot.
+func (c *Client) CheckHoneypot(host *Host) (bool, string, error) {
+	// 1. Try with a fake user to see if it accepts any credentials
+	fakeHost := *host
+	fakeHost.User = "hellsing_detect_" + strconv.FormatInt(time.Now().Unix(), 10)
+	fakeHost.Password = "NeverGuessThis_12345"
+	fakeHost.SSHAuths = []ssh.AuthMethod{ssh.Password(fakeHost.Password)}
+
+	client, err := c.getClient(&fakeHost)
+	if err == nil {
+		client.Close()
+		return true, "Accepted fake credentials (Credential Rejection Test Failed)", nil
+	}
+
+	// 2. If credential rejection works, check environment consistency on real host
+	client, err = c.getClient(host)
+	if err != nil {
+		return false, "", err
+	}
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return false, "", err
+	}
+	defer session.Close()
+
+	// Check if /proc/1/exe exists and points to something reasonable
+	output, err := session.Output("ls -l /proc/1/exe")
+	if err != nil {
+		return true, "Missing or inaccessible /proc/1/exe (Environment Consistency Test Failed)", nil
+	}
+
+	outStr := string(output)
+	if !strings.Contains(outStr, "/") {
+		return true, "Abnormal /proc/1/exe output: " + outStr, nil
+	}
+
+	return false, "", nil
+}
+
 // ExecuteCmd on remote host.
 func (c *Client) ExecuteCmd(host *Host, command, lang, runAs string, sudo bool) (string, error) {
 	client, err := c.getClient(host)

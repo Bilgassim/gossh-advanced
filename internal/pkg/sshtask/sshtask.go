@@ -133,6 +133,16 @@ func (t *Task) SSH(host *batchssh.Host) (string, error) {
 	runAs := t.configFlags.Run.AsUser
 	sudo := t.configFlags.Run.Sudo
 
+	if t.configFlags.Run.DetectHoneypot {
+		isHoneypot, reason, err := t.sshClient.CheckHoneypot(host)
+		if err != nil {
+			return "", err
+		}
+		if isHoneypot {
+			return "", fmt.Errorf("SKIPPED: Honeypot detected (%s)", reason)
+		}
+	}
+
 	switch t.taskType {
 	case CommandTask:
 		return t.sshClient.ExecuteCmd(host, t.command, lang, runAs, sudo)
